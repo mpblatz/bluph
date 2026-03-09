@@ -295,6 +295,34 @@ function handleChooseExchangeCards(socket: Socket, io: Server, gameService: Game
     };
 }
 
+function handleChatMessage(socket: Socket, io: Server, _gameService: GameService, playerService: PlayerService) {
+    return (data: any, callback: Function) => {
+        try {
+            const { text } = data;
+            if (!text || typeof text !== "string" || text.trim().length === 0) {
+                return callback({ success: false, error: "Invalid message" });
+            }
+            const player = playerService.getPlayerBySocket(socket.id);
+            if (!player) return callback({ success: false, error: "Player not found" });
+
+            const gameCode = playerService.getPlayerGameCode(player.id);
+            if (!gameCode) return callback({ success: false, error: "Not in a game" });
+
+            io.to(gameCode).emit("chat-message", {
+                id: `${Date.now()}-${Math.random()}`,
+                playerId: player.id,
+                playerName: player.name,
+                text: text.trim().slice(0, 200),
+                timestamp: new Date(),
+            });
+            callback({ success: true });
+        } catch (error) {
+            console.error("Error sending chat message:", error);
+            callback({ success: false, error: "Server error" });
+        }
+    };
+}
+
 export function registerGameHandlers(
     socket: Socket,
     io: Server,
@@ -312,6 +340,9 @@ export function registerGameHandlers(
     socket.on("respond-to-block", handleRespondToBlock(socket, io, gameService, playerService));
     socket.on("choose-card-to-lose", handleChooseCardToLose(socket, io, gameService, playerService));
     socket.on("choose-exchange-cards", handleChooseExchangeCards(socket, io, gameService, playerService));
+
+    // Chat events
+    socket.on("send-chat-message", handleChatMessage(socket, io, gameService, playerService));
 
     // Connection events
     socket.on("disconnect", handleDisconnect(socket, io, gameService, playerService));

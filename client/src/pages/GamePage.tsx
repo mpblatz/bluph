@@ -42,6 +42,8 @@ export default function GamePage() {
     const { gameData, playerData, setGameData } = useGame();
     const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
     const [selectedExchangeCards, setSelectedExchangeCards] = useState<string[]>([]);
+    const [chatMessages, setChatMessages] = useState<{ id: string; playerId: string; playerName: string; text: string; timestamp: Date }[]>([]);
+    const [chatInput, setChatInput] = useState("");
 
     useEffect(() => {
         if (!socket) return;
@@ -64,9 +66,14 @@ export default function GamePage() {
             if (data.gameState) setGameData(data.gameState);
         });
 
+        socket.on("chat-message", (msg: { id: string; playerId: string; playerName: string; text: string; timestamp: Date }) => {
+            setChatMessages((prev) => [msg, ...prev]);
+        });
+
         return () => {
             socket.off("game-state-update");
             socket.off("player-reconnected");
+            socket.off("chat-message");
         };
     }, [socket]);
 
@@ -144,6 +151,13 @@ export default function GamePage() {
         socket.emit("choose-exchange-cards", { keepCardIds: selectedExchangeCards }, (res: { success: boolean; error?: string }) => {
             if (!res.success) console.error("Exchange failed:", res.error);
             else setSelectedExchangeCards([]);
+        });
+    };
+
+    const sendChat = () => {
+        if (!socket || !chatInput.trim()) return;
+        socket.emit("send-chat-message", { text: chatInput.trim() }, (res: { success: boolean }) => {
+            if (res.success) setChatInput("");
         });
     };
 
@@ -507,26 +521,74 @@ export default function GamePage() {
                 {/* Action Feed */}
                 <div id="feed" className="w-64 flex flex-col overflow-hidden bg-gray-900 border-r border-gray-800">
                     <div className="px-3 py-2 border-b border-gray-800">
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Action Log</span>
-                        <span className="ml-2 text-xs text-gray-600">{gameData.actionHistory.length} actions</span>
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Feed</span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-                        {[...gameData.actionHistory].reverse().slice(0, 20).map((action, i) => {
-                            const actorName = getPlayerName(action.playerId);
-                            const targetName = action.targetId ? getPlayerName(action.targetId) : "";
-                            const label = ACTION_HISTORY_LABELS[action.type];
-                            const colorClass = ACTION_COLORS[action.type];
-                            return (
-                                <div key={action.id ?? i} className={`text-xs text-gray-800 rounded border-l-2 px-2 py-1.5 ${colorClass}`}>
-                                    <span className="font-bold text-gray-900">{actorName}</span>{" "}
-                                    <span className="text-gray-600">{label}</span>
-                                    {targetName && <span className="font-bold text-gray-900"> {targetName}</span>}
-                                </div>
-                            );
-                        })}
-                        {gameData.actionHistory.length === 0 && (
-                            <div className="text-xs text-gray-600 text-center py-4">No actions yet</div>
-                        )}
+                        {(() => {
+                            const actionItems = [...gameData.actionHistory].map((a) => ({ kind: "action" as const, ts: new Date(a.timestamp).getTime(), data: a }));
+                            const chatItems = chatMessages.map((m) => ({ kind: "chat" as const, ts: new Date(m.timestamp).getTime(), data: m }));
+                            const merged = [...actionItems, ...chatItems].sort((a, b) => b.ts - a.ts).slice(0, 40);
+
+                            if (merged.length === 0) return <div className="text-xs text-gray-600 text-center py-4">No activity yet</div>;
+
+                            const fmt = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+                            return merged.map((item, i) => {
+                                if (item.kind === "action") {
+                                    const action = item.data;
+                                    const actorName = getPlayerName(action.playerId);
+                                    const targetName = action.targetId ? getPlayerName(action.targetId) : "";
+                                    const label = ACTION_HISTORY_LABELS[action.type];
+                                    const colorClass = ACTION_COLORS[action.type];
+                                    return (
+                                        <div key={action.id ?? i} className={`text-xs text-gray-800 rounded border-l-2 px-2 py-1.5 ${colorClass}`}>
+                                            <div className="flex items-start justify-between gap-1">
+                                                <span>
+                                                    <span className="font-bold text-gray-900">{actorName}</span>{" "}
+                                                    <span className="text-gray-600">{label}</span>
+                                                    {targetName && <span className="font-bold text-gray-900"> {targetName}</span>}
+                                                </span>
+                                                <span className="text-gray-400 shrink-0 mt-0.5">{fmt(item.ts)}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                } else {
+                                    const msg = item.data;
+                                    const isMe = msg.playerId === myId;
+                                    return (
+                                        <div key={msg.id} className="text-xs rounded border-l-2 border-l-gray-600 bg-gray-800 px-2 py-1.5">
+                                            <div className="flex items-start justify-between gap-1">
+                                                <span>
+                                                    <span className={`font-bold ${isMe ? "text-blue-400" : "text-gray-300"}`}>{msg.playerName}</span>
+                                                    <span className="text-gray-500">: </span>
+                                                    <span className="text-gray-200">{msg.text}</span>
+                                                </span>
+                                                <span className="text-gray-500 shrink-0 mt-0.5">{fmt(item.ts)}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                            });
+                        })()}
+                    </div>
+                    {/* Chat input */}
+                    <div className="border-t border-gray-800 p-2 flex gap-1.5">
+                        <input
+                            type="text"
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && sendChat()}
+                            placeholder="Message..."
+                            maxLength={200}
+                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+                        />
+                        <button
+                            onClick={sendChat}
+                            disabled={!chatInput.trim()}
+                            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-xs px-2 py-1 rounded"
+                        >
+                            Send
+                        </button>
                     </div>
                 </div>
 
