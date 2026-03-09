@@ -39,7 +39,7 @@ app.get("/health", (req, res) => {
 
 // Socket.io handling
 io.on("connection", (socket) => {
-    registerGameHandlers(socket, gameService, playerService);
+    registerGameHandlers(socket, io, gameService, playerService);
 
     socket.on("message", (data) => {
         console.log("Received message:", data);

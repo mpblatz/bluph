@@ -19,7 +19,8 @@ export default function JoinPage() {
             console.log(`player joined - ${data}`);
         });
 
-        socket.on("game-started", () => {
+        socket.on("game-started", (data: GameState) => {
+            setGameData(data);
             navigate("/game");
         });
 

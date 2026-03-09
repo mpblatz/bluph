@@ -1,38 +1,37 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 export const useSocket = (serverUrl: string) => {
-    const socketRef = useRef<Socket | null>(null);
+    const [socket, setSocket] = useState<Socket | null>(null);
 
     useEffect(() => {
-        socketRef.current = io(serverUrl, {
+        const newSocket = io(serverUrl, {
             transports: ["websocket", "polling"],
         });
 
-        const socket = socketRef.current;
-
-        socket.on("game-started", () => {
+        newSocket.on("game-started", () => {
             console.log("Game started");
         });
 
-        socket.on("player-joined", () => {
+        newSocket.on("player-joined", () => {
             console.log("Player joined");
         });
 
-        socket.on("player-disconnected", () => {
+        newSocket.on("player-disconnected", () => {
             console.log("Player disconnected");
         });
 
-        socket.on("player-reconnected", () => {
+        newSocket.on("player-reconnected", () => {
             console.log("Player reconnected");
         });
 
+        setSocket(newSocket);
+
+
         return () => {
-            socket.disconnect();
+            newSocket.disconnect();
         };
     }, [serverUrl]);
 
-    return {
-        socket: socketRef.current,
-    };
+    return { socket };
 };

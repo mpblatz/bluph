@@ -45,15 +45,23 @@ export interface GameAction {
     timestamp: Date;
 }
 
+export interface PendingBlock {
+    blockerId: string;
+    cardClaimed: CardType;
+    responses: { [playerId: string]: ResponseType };
+}
+
 export interface PendingAction {
     action: GameAction;
     challengeableBy: string[];
     blockableBy: string[];
-    responses: Map<string, ResponseType>;
-    timeoutId?: any; // change later
+    responses: { [playerId: string]: ResponseType };
+    timeoutId?: any;
     timeoutDuration: number;
     canBlock: boolean;
     canChallenge: boolean;
+    block?: PendingBlock;
+    exchangeOptions?: Card[];
 }
 
 export interface ChallengeResult {
@@ -83,9 +91,11 @@ export interface PlayerState {
 
 export type PublicPlayerState = Omit<PlayerState, "cards"> & { cardCount: number };
 
+export type GamePlayerView = PlayerState | PublicPlayerState;
+
 export interface GameState {
     code: string;
-    players: PlayerState[];
+    players: GamePlayerView[];
     deck: Card[];
     currentPlayerIndex: number;
     currentPlayer: PublicPlayerState | undefined;
@@ -96,4 +106,5 @@ export interface GameState {
     maxPlayers: number;
     winner: PublicPlayerState | undefined;
     hostPlayerId: string;
+    playersWhoMustLoseCard: string[];
 }

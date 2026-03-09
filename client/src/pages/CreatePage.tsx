@@ -19,8 +19,14 @@ export default function CreatePage() {
             console.log(`player joined - ${data.gameState}`);
         });
 
+        socket.on("game-started", (data: GameState) => {
+            setGameData(data);
+            navigate("/game");
+        });
+
         return () => {
             socket.off("player-joined");
+            socket.off("game-started");
         };
     }, [socket]);
 
@@ -41,9 +47,10 @@ export default function CreatePage() {
     const startGame = () => {
         console.log("handle start game here!");
         if (!socket) return;
+        // Navigation happens via the game-started event handler to ensure game state is saved first
         socket.emit("start-game", { gameCode: gameCode }, (response: { success: boolean }) => {
-            if (response.success) {
-                navigate("/game");
+            if (!response.success) {
+                console.error("Failed to start game");
             }
         });
     };
