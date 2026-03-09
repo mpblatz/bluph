@@ -25,6 +25,7 @@ export class Game {
     public readonly createdAt: Date;
     public readonly maxPlayers: number;
     public playersWhoMustLoseCard: Set<string>;
+    public chatHistory: { id: string; playerId: string; playerName: string; text: string; timestamp: Date }[];
     private pendingResolution: "action_success" | "action_fail" | "next_turn";
 
     constructor(gameCode: string, hostPlayerId: string) {
@@ -37,6 +38,7 @@ export class Game {
         this.phase = GamePhase.WAITING;
         this.pendingAction = null;
         this.actionHistory = [];
+        this.chatHistory = [];
         this.createdAt = new Date();
         this.maxPlayers = 6;
         this.playersWhoMustLoseCard = new Set();

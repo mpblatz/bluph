@@ -130,7 +130,7 @@ function handleReconnect(socket: Socket, io: Server, gameService: GameService, p
                 socket.join(gameCode);
                 // Broadcast personalized state to every player so no one loses their cards
                 broadcastToGame(io, game, playerService);
-                callback({ success: true, gameState: game.getGameState(playerId) });
+                callback({ success: true, gameState: game.getGameState(playerId), chatHistory: game.chatHistory });
             } else {
                 callback({ success: false, error: "Cannot reconnect" });
             }
@@ -151,7 +151,7 @@ function handleGetGameState(socket: Socket, _io: Server, gameService: GameServic
             const game = gameService.getGame(gameCode);
             if (!game) return callback({ success: false, error: "Game not found" });
 
-            callback({ success: true, gameCode, gameState: game.getGameState(player.id) });
+            callback({ success: true, gameCode, gameState: game.getGameState(player.id), chatHistory: game.chatHistory });
         } catch (error) {
             console.error("Error getting game state:", error);
             callback({ success: false, error: "Server error" });
@@ -295,7 +295,7 @@ function handleChooseExchangeCards(socket: Socket, io: Server, gameService: Game
     };
 }
 
-function handleChatMessage(socket: Socket, io: Server, _gameService: GameService, playerService: PlayerService) {
+function handleChatMessage(socket: Socket, io: Server, gameService: GameService, playerService: PlayerService) {
     return (data: any, callback: Function) => {
         try {
             const { text } = data;
@@ -308,13 +308,20 @@ function handleChatMessage(socket: Socket, io: Server, _gameService: GameService
             const gameCode = playerService.getPlayerGameCode(player.id);
             if (!gameCode) return callback({ success: false, error: "Not in a game" });
 
-            io.to(gameCode).emit("chat-message", {
+            const game = gameService.getGame(gameCode);
+            if (!game) return callback({ success: false, error: "Game not found" });
+
+            const message = {
                 id: `${Date.now()}-${Math.random()}`,
                 playerId: player.id,
                 playerName: player.name,
                 text: text.trim().slice(0, 200),
                 timestamp: new Date(),
-            });
+            };
+            game.chatHistory.push(message);
+            if (game.chatHistory.length > 200) game.chatHistory.shift();
+
+            io.to(gameCode).emit("chat-message", message);
             callback({ success: true });
         } catch (error) {
             console.error("Error sending chat message:", error);

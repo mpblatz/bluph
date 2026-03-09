@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useSocket } from "../hooks/useSocket";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionType, CardType, GamePhase, ResponseType, type Card, type GameState, type PlayerState } from "../../../shared/types";
 import { useGame } from "../context/GameContext";
 
@@ -44,6 +44,11 @@ export default function GamePage() {
     const [selectedExchangeCards, setSelectedExchangeCards] = useState<string[]>([]);
     const [chatMessages, setChatMessages] = useState<{ id: string; playerId: string; playerName: string; text: string; timestamp: Date }[]>([]);
     const [chatInput, setChatInput] = useState("");
+    const feedBottomRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        feedBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chatMessages, gameData?.actionHistory?.length]);
 
     useEffect(() => {
         if (!socket) return;
@@ -52,8 +57,11 @@ export default function GamePage() {
             socket.emit(
                 "reconnect-to-game",
                 { playerId: playerData.id, gameCode: gameData.code },
-                (response: { success: boolean; gameState: GameState }) => {
-                    if (response.success) setGameData(response.gameState);
+                (response: { success: boolean; gameState: GameState; chatHistory?: typeof chatMessages }) => {
+                    if (response.success) {
+                        setGameData(response.gameState);
+                        if (response.chatHistory) setChatMessages(response.chatHistory);
+                    }
                 }
             );
         }
@@ -527,7 +535,7 @@ export default function GamePage() {
                         {(() => {
                             const actionItems = [...gameData.actionHistory].map((a) => ({ kind: "action" as const, ts: new Date(a.timestamp).getTime(), data: a }));
                             const chatItems = chatMessages.map((m) => ({ kind: "chat" as const, ts: new Date(m.timestamp).getTime(), data: m }));
-                            const merged = [...actionItems, ...chatItems].sort((a, b) => b.ts - a.ts).slice(0, 40);
+                            const merged = [...actionItems, ...chatItems].sort((a, b) => a.ts - b.ts).slice(-40);
 
                             if (merged.length === 0) return <div className="text-xs text-gray-600 text-center py-4">No activity yet</div>;
 
@@ -570,6 +578,7 @@ export default function GamePage() {
                                 }
                             });
                         })()}
+                        <div ref={feedBottomRef} />
                     </div>
                     {/* Chat input */}
                     <div className="border-t border-gray-800 p-2 flex gap-1.5">
@@ -616,46 +625,80 @@ export default function GamePage() {
                             {gameData.players.map((player, index) => {
                                 const isMe = player.id === myId;
                                 const isCurrentTurnPlayer = player.id === gameData.currentPlayer?.id;
-                                const isValidTarget =
-                                    isTargetSelectionMode && !isMe && player.isAlive;
-                                const cardCount = (player as PlayerState).cards?.length ?? (player as any).cardCount ?? 0;
+                                const isValidTarget = isTargetSelectionMode && !isMe && player.isAlive;
+                                const faceUpCards = isMe ? ((player as PlayerState).cards ?? []) : null;
+                                const cardCount = faceUpCards ? faceUpCards.length : ((player as any).cardCount ?? 0);
                                 const position = getPlayerPosition(index, gameData.players.length);
+
+                                const CARD_COLORS: Record<string, string> = {
+                                    duke: "bg-yellow-600 border-yellow-400 text-white",
+                                    assassin: "bg-purple-700 border-purple-400 text-white",
+                                    captain: "bg-blue-600 border-blue-400 text-white",
+                                    ambassador: "bg-emerald-600 border-emerald-400 text-white",
+                                    contessa: "bg-red-600 border-red-400 text-white",
+                                };
+
+                                const renderCards = () => {
+                                    if (faceUpCards && faceUpCards.length > 0) {
+                                        return faceUpCards.map((card) => (
+                                            <div
+                                                key={card.id}
+                                                className={`w-11 h-16 rounded-lg border-2 shadow-lg flex flex-col items-center justify-center gap-0.5 ${CARD_COLORS[card.type] ?? "bg-gray-700 border-gray-500 text-white"}`}
+                                            >
+                                                <span className="text-[10px] font-bold capitalize leading-tight text-center px-0.5">{card.type}</span>
+                                            </div>
+                                        ));
+                                    }
+                                    if (cardCount === 0) {
+                                        return <div className="w-11 h-16 rounded-lg border border-dashed border-gray-600 opacity-30" />;
+                                    }
+                                    return Array.from({ length: cardCount }).map((_, i) => (
+                                        <div key={i} className="w-11 h-16 rounded-lg border-2 border-gray-600 bg-gray-800 shadow-lg flex items-center justify-center">
+                                            <div className="w-7 h-11 rounded border border-gray-500 opacity-50 flex items-center justify-center">
+                                                <div className="w-3 h-3 rounded-full border border-gray-400 opacity-60" />
+                                            </div>
+                                        </div>
+                                    ));
+                                };
 
                                 return (
                                     <div
                                         key={player.id || index}
                                         style={position}
-                                        className="absolute flex flex-col items-center z-10"
+                                        className="absolute z-10"
                                         onClick={() => isValidTarget && handleTargetClick(player.id)}
                                     >
-                                        <div
-                                            className={`
-                                                w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg transition-all
-                                                ${isMe ? "bg-blue-500 ring-4 ring-blue-300" : "bg-gray-600"}
-                                                ${!player.isAlive ? "opacity-40" : ""}
-                                                ${isCurrentTurnPlayer && phase === GamePhase.PLAYING ? "ring-4 ring-yellow-400" : ""}
-                                                ${isValidTarget ? "cursor-pointer ring-4 ring-red-400 scale-110 bg-red-600 hover:bg-red-700" : ""}
-                                            `}
-                                        >
-                                            {player.name.charAt(0).toUpperCase()}
-                                        </div>
+                                        <div className={`flex items-center gap-2 ${!player.isAlive ? "opacity-40" : ""} ${isValidTarget ? "cursor-pointer" : ""}`}>
+                                            {/* Avatar + name + coins */}
+                                            <div className="flex flex-col items-center gap-1">
+                                                <div
+                                                    className={`
+                                                        w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg transition-all
+                                                        ${isMe ? "bg-blue-500 ring-4 ring-blue-300" : "bg-gray-600"}
+                                                        ${isCurrentTurnPlayer && phase === GamePhase.PLAYING ? "ring-4 ring-yellow-400" : ""}
+                                                        ${isValidTarget ? "ring-4 ring-red-400 scale-110 bg-red-600" : ""}
+                                                    `}
+                                                >
+                                                    {player.name.charAt(0).toUpperCase()}
+                                                </div>
 
-                                        <div
-                                            className={`
-                                                mt-1 px-2 py-0.5 rounded-full text-xs font-medium shadow-md whitespace-nowrap
-                                                ${isMe ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"}
-                                                ${!player.isAlive ? "line-through opacity-60" : ""}
-                                            `}
-                                        >
-                                            {player.name}
-                                            {player.id === gameData.hostPlayerId && " 👑"}
-                                            {isMe && " (You)"}
-                                        </div>
+                                                <div className={`px-2 py-0.5 rounded-full text-xs font-medium shadow-md whitespace-nowrap ${isMe ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"} ${!player.isAlive ? "line-through" : ""}`}>
+                                                    {player.name}{player.id === gameData.hostPlayerId && " 👑"}{isMe && " (You)"}
+                                                </div>
 
-                                        <div className="mt-1 text-xs text-gray-600 bg-white px-2 py-0.5 rounded shadow flex gap-1">
-                                            <span>{cardCount} card{cardCount !== 1 ? "s" : ""}</span>
-                                            <span>·</span>
-                                            <span>{player.coins}🪙</span>
+                                                <div className="flex flex-wrap gap-0.5 justify-center max-w-[56px]">
+                                                    {Array.from({ length: Math.min(player.coins, 12) }).map((_, i) => (
+                                                        <div key={i} className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 shadow-sm" />
+                                                    ))}
+                                                    {player.coins > 12 && <span className="text-[9px] text-yellow-400 font-bold">+{player.coins - 12}</span>}
+                                                    {player.coins === 0 && <span className="text-[9px] text-gray-500">0 coins</span>}
+                                                </div>
+                                            </div>
+
+                                            {/* Cards */}
+                                            <div className="flex gap-1">
+                                                {renderCards()}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -665,19 +708,6 @@ export default function GamePage() {
 
                     {/* Actions bar */}
                     <div id="actions" className="bg-gray-900 border-t border-gray-800 shrink-0">
-                        {/* Player's hand */}
-                        {myCards.length > 0 && (
-                            <div className="flex gap-3 justify-center pt-3 px-4">
-                                {myCards.map((card) => (
-                                    <div
-                                        key={card.id}
-                                        className="bg-gray-800 border border-gray-600 rounded-lg px-5 py-2 text-sm font-semibold capitalize text-white shadow-md"
-                                    >
-                                        {card.type}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                         {renderActionBar()}
                     </div>
                 </div>
