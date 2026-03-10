@@ -6,7 +6,7 @@ import { useGame } from "../context/GameContext";
 
 export default function CreatePage() {
     const navigate = useNavigate();
-    const { socket } = useSocket(`http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
+    const { socket } = useSocket(import.meta.env.VITE_SERVER_URL || `http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
     const [name, setName] = useState<string>("");
     const [gameCode, setGameCode] = useState<string>("");
     const { gameData, setPlayerData, setGameData } = useGame();

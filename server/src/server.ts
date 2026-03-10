@@ -21,9 +21,15 @@ const server = createServer(app);
 const CLIENT_PORT = process.env.VITE_CLIENT_PORT || 8002;
 const SERVER_PORT = process.env.VITE_SERVER_PORT || 8003;
 
+const allowedOrigins = [
+    `http://localhost:${CLIENT_PORT}`,
+    "https://bluph.gg",
+    "http://bluph.gg",
+];
+
 const io = new Server(server, {
     cors: {
-        origin: `http://localhost:${CLIENT_PORT}`,
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
     },
 });

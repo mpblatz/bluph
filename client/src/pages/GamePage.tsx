@@ -46,7 +46,7 @@ const ACTION_COLORS: Record<ActionType, string> = {
 };
 
 export default function GamePage() {
-    const { socket } = useSocket(`http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
+    const { socket } = useSocket(import.meta.env.VITE_SERVER_URL || `http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
     const { gameData, playerData, setGameData } = useGame();
     const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
     const [selectedExchangeCards, setSelectedExchangeCards] = useState<string[]>([]);
