@@ -61,6 +61,7 @@ export default function GamePage() {
     const [coupTargetPlayerId, setCoupTargetPlayerId] = useState<string | null>(null);
     const [doubleContessaStep, setDoubleContessaStep] = useState<"pickTarget" | null>(null);
     const [doubleContessaRedirectId, setDoubleContessaRedirectId] = useState<string | null>(null);
+    const [showFeed, setShowFeed] = useState(false);
     const feedBottomRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -716,43 +717,58 @@ export default function GamePage() {
             {/* Header */}
             <div
                 id="nav"
-                className="flex items-center justify-between px-5 py-2 bg-gray-900 border-b border-gray-800 shrink-0"
+                className="flex items-center justify-between px-3 md:px-5 py-2 bg-gray-900 border-b border-gray-800 shrink-0"
             >
                 <Link
                     to="/"
-                    className="text-2xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors"
+                    className="text-xl md:text-2xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors"
                 >
                     bluph
                 </Link>
-                <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500 uppercase tracking-widest">Game</span>
-                    <span className="font-mono text-lg font-bold text-yellow-400 tracking-widest bg-gray-800 px-3 py-1 rounded">
+                <div className="flex items-center gap-2">
+                    <span className="font-mono text-base md:text-lg font-bold text-yellow-400 tracking-widest bg-gray-800 px-2 md:px-3 py-1 rounded">
                         {gameData.code}
                     </span>
                     {gameData.ruleset === Ruleset.WAUKEGAN && (
-                        <span className="text-xs font-semibold bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-2 py-0.5 rounded">
+                        <span className="text-xs font-semibold bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-2 py-0.5 rounded hidden sm:inline">
                             Waukegan
                         </span>
                     )}
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="text-sm text-gray-300 font-medium">{myPlayer?.name}</div>
-                    <div className="flex items-center gap-1 bg-yellow-900/50 border border-yellow-700 text-yellow-300 text-sm font-semibold px-2 py-0.5 rounded">
+                <div className="flex items-center gap-1.5 md:gap-2">
+                    <div className="text-xs md:text-sm text-gray-300 font-medium hidden sm:block">{myPlayer?.name}</div>
+                    <div className="flex items-center gap-1 bg-yellow-900/50 border border-yellow-700 text-yellow-300 text-xs md:text-sm font-semibold px-1.5 md:px-2 py-0.5 rounded">
                         <span>{myPlayer?.coins ?? 0}</span>
                         <span className="text-xs">coins</span>
                     </div>
-                    <div className="flex items-center gap-1 bg-blue-900/50 border border-blue-700 text-blue-300 text-sm font-semibold px-2 py-0.5 rounded">
+                    <div className="flex items-center gap-1 bg-blue-900/50 border border-blue-700 text-blue-300 text-xs md:text-sm font-semibold px-1.5 md:px-2 py-0.5 rounded">
                         <span>{myCards.length}</span>
                         <span className="text-xs">cards</span>
                     </div>
+                    <button
+                        onClick={() => setShowFeed((prev) => !prev)}
+                        className="md:hidden bg-gray-800 border border-gray-700 text-gray-300 text-xs px-2 py-1 rounded hover:bg-gray-700"
+                    >
+                        Chat
+                    </button>
                 </div>
             </div>
 
             <div className="flex h-full w-full overflow-hidden">
-                {/* Action Feed */}
-                <div id="feed" className="w-64 flex flex-col overflow-hidden bg-gray-900 border-r border-gray-800">
-                    <div className="px-3 py-2 border-b border-gray-800">
+                {/* Action Feed — mobile: full-screen overlay, desktop: sidebar */}
+                <div
+                    id="feed"
+                    className={`flex-col overflow-hidden bg-gray-900 border-r border-gray-800
+                        ${showFeed ? "flex fixed inset-0 z-50" : "hidden md:flex md:w-64 md:relative md:inset-auto md:z-auto"}`}
+                >
+                    <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
                         <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Feed</span>
+                        <button
+                            onClick={() => setShowFeed(false)}
+                            className="md:hidden text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                        >
+                            ✕
+                        </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
                         {(() => {
