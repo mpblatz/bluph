@@ -1,12 +1,12 @@
 import { Game } from "../game/Game.js";
 import { Player } from "../game/Player.js";
-import { GamePhase } from "../../shared/types.js";
+import { GamePhase, Ruleset } from "../../shared/types.js";
 export class GameService {
     private games = new Map<string, Game>();
 
-    public createGame(hostPlayerId: string): string {
+    public createGame(hostPlayerId: string, ruleset: Ruleset = Ruleset.STANDARD): string {
         const code = this.generateGameCode();
-        const game = new Game(code, hostPlayerId);
+        const game = new Game(code, hostPlayerId, ruleset);
         this.games.set(code, game);
         return code;
     }

@@ -11,12 +11,12 @@ function broadcastToGame(io: Server, game: Game, _playerService: PlayerService):
 function handleCreateGame(socket: Socket, _io: Server, gameService: GameService, playerService: PlayerService) {
     return async (data: any, callback: Function) => {
         try {
-            const { playerName } = data;
+            const { playerName, ruleset } = data;
             if (!playerName || typeof playerName !== "string") {
                 return callback({ success: false, error: "Invalid player name" });
             }
             const player = playerService.createPlayer(playerName, socket.id);
-            const gameCode = gameService.createGame(player.id);
+            const gameCode = gameService.createGame(player.id, ruleset);
             const game = gameService.getGame(gameCode);
             if (game && game.addPlayer(player)) {
                 playerService.setPlayerGame(player.id, gameCode);
@@ -167,7 +167,7 @@ function handleGetGameState(socket: Socket, _io: Server, gameService: GameServic
 function handlePerformAction(socket: Socket, io: Server, gameService: GameService, playerService: PlayerService) {
     return async (data: any, callback: Function) => {
         try {
-            const { actionType, targetId } = data;
+            const { actionType, targetId, isDouble, coupTargetCard } = data;
             const player = playerService.getPlayerBySocket(socket.id);
             if (!player) return callback({ success: false, error: "Player not found" });
 
@@ -177,7 +177,7 @@ function handlePerformAction(socket: Socket, io: Server, gameService: GameServic
             const game = gameService.getGame(gameCode);
             if (!game) return callback({ success: false, error: "Game not found" });
 
-            const result = game.declareAction(player.id, actionType, targetId);
+            const result = game.declareAction(player.id, actionType, targetId, isDouble, coupTargetCard);
             if (!result.success) return callback({ success: false, error: result.error });
 
             broadcastToGame(io, game, playerService);
@@ -192,7 +192,7 @@ function handlePerformAction(socket: Socket, io: Server, gameService: GameServic
 function handleRespondToAction(socket: Socket, io: Server, gameService: GameService, playerService: PlayerService) {
     return async (data: any, callback: Function) => {
         try {
-            const { response, cardClaimed } = data;
+            const { response, cardClaimed, isDouble, redirectTargetId } = data;
             const player = playerService.getPlayerBySocket(socket.id);
             if (!player) return callback({ success: false, error: "Player not found" });
 
@@ -202,7 +202,7 @@ function handleRespondToAction(socket: Socket, io: Server, gameService: GameServ
             const game = gameService.getGame(gameCode);
             if (!game) return callback({ success: false, error: "Game not found" });
 
-            const result = game.respondToAction(player.id, response as ResponseType, cardClaimed);
+            const result = game.respondToAction(player.id, response as ResponseType, cardClaimed, isDouble, redirectTargetId);
             if (!result.success) return callback({ success: false, error: result.error });
 
             // When all players allowed, finalize the action
@@ -237,6 +237,9 @@ function handleRespondToBlock(socket: Socket, io: Server, gameService: GameServi
 
             // When all players allowed the block (block stands, action fails), finalize
             if (result.event === "block_stands") {
+                game.finalizePendingResolution();
+            } else if (result.event === "challenge_resolved" && !result.needsCardLoss?.length) {
+                // Dylan's Gambit: player already eliminated, finalize immediately
                 game.finalizePendingResolution();
             }
 
@@ -300,6 +303,26 @@ function handleChooseExchangeCards(socket: Socket, io: Server, gameService: Game
     };
 }
 
+function handleResetGame(socket: Socket, io: Server, gameService: GameService, playerService: PlayerService) {
+    return async (data: any, callback: Function) => {
+        try {
+            const { gameCode } = data;
+            const player = playerService.getPlayerBySocket(socket.id);
+            if (!player) return callback({ success: false, error: "Player not found" });
+
+            const game = gameService.getGame(gameCode);
+            if (!game) return callback({ success: false, error: "Game not found" });
+
+            game.resetGame();
+            io.to(gameCode).emit("game-state-update", { gameState: game.getGameState() });
+            callback({ success: true });
+        } catch (error) {
+            console.error("Error resetting game:", error);
+            callback({ success: false, error: "Server error" });
+        }
+    };
+}
+
 function handleChatMessage(socket: Socket, io: Server, gameService: GameService, playerService: PlayerService) {
     return (data: any, callback: Function) => {
         try {
@@ -352,6 +375,7 @@ export function registerGameHandlers(
     socket.on("respond-to-block", handleRespondToBlock(socket, io, gameService, playerService));
     socket.on("choose-card-to-lose", handleChooseCardToLose(socket, io, gameService, playerService));
     socket.on("choose-exchange-cards", handleChooseExchangeCards(socket, io, gameService, playerService));
+    socket.on("reset-game", handleResetGame(socket, io, gameService, playerService));
 
     // Chat events
     socket.on("send-chat-message", handleChatMessage(socket, io, gameService, playerService));

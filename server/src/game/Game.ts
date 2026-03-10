@@ -8,6 +8,7 @@ import {
     GameState,
     PendingAction,
     ResponseType,
+    Ruleset,
 } from "../../shared/types.js";
 import { createDeck, shuffleDeck } from "../utils/cardUtils.js";
 import { Player } from "./Player.js";
@@ -26,11 +27,13 @@ export class Game {
     public readonly maxPlayers: number;
     public playersWhoMustLoseCard: Set<string>;
     public chatHistory: { id: string; playerId: string; playerName: string; text: string; timestamp: Date }[];
+    public readonly ruleset: Ruleset;
     private pendingResolution: "action_success" | "action_fail" | "next_turn";
 
-    constructor(gameCode: string, hostPlayerId: string) {
+    constructor(gameCode: string, hostPlayerId: string, ruleset: Ruleset = Ruleset.STANDARD) {
         this.code = gameCode;
         this.hostPlayerId = hostPlayerId;
+        this.ruleset = ruleset;
         this.lastActivityAt = new Date();
         this.players = [];
         this.deck = [];
@@ -76,6 +79,22 @@ export class Game {
         return true;
     }
 
+    public resetGame(): void {
+        for (const player of this.players) {
+            player.cards = [];
+            player.coins = 2;
+            player.isAlive = true;
+        }
+        this.deck = [];
+        this.pendingAction = null;
+        this.actionHistory = [];
+        this.playersWhoMustLoseCard = new Set();
+        this.pendingResolution = "next_turn";
+        this.currentPlayerIndex = 0;
+        this.phase = GamePhase.WAITING;
+        this.updateActivity();
+    }
+
     public startGame(): boolean {
         if (this.players.length < 2) return false;
         if (this.phase !== GamePhase.WAITING) return false;
@@ -107,6 +126,7 @@ export class Game {
             maxPlayers: this.maxPlayers,
             hostPlayerId: this.hostPlayerId,
             playersWhoMustLoseCard: Array.from(this.playersWhoMustLoseCard),
+            ruleset: this.ruleset,
         };
     }
 
@@ -205,6 +225,8 @@ export class Game {
         playerId: string,
         actionType: ActionType,
         targetId?: string,
+        isDouble?: boolean,
+        coupTargetCard?: CardType,
     ): { success: boolean; error?: string; immediate?: boolean; needsCardLoss?: string } {
         const currentPlayer = this.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.id !== playerId) {
@@ -214,13 +236,24 @@ export class Game {
         if (!player || !player.isAlive) {
             return { success: false, error: "Player not alive" };
         }
-        if (player.coins >= 10 && actionType !== ActionType.COUP) {
-            return { success: false, error: "Must Coup with 10+ coins" };
+
+        // Coin checks differ by ruleset
+        if (this.ruleset === Ruleset.WAUKEGAN) {
+            // Waukegan: income/FA blocked at 10+, no forced coup, max 12
+            if (player.coins >= 10 && (actionType === ActionType.INCOME || actionType === ActionType.FOREIGN_AID)) {
+                return { success: false, error: "Cannot take coins when at 10+" };
+            }
+        } else {
+            // Standard: must coup at 10+
+            if (player.coins >= 10 && actionType !== ActionType.COUP) {
+                return { success: false, error: "Must Coup with 10+ coins" };
+            }
         }
 
         // Income: no challenge/block, resolve immediately
         if (actionType === ActionType.INCOME) {
-            player.addCoins(1);
+            const toAdd = this.ruleset === Ruleset.WAUKEGAN ? Math.min(1, 12 - player.coins) : 1;
+            if (toAdd > 0) player.addCoins(toAdd);
             this.actionHistory.push({
                 id: crypto.randomUUID(),
                 type: ActionType.INCOME,
@@ -239,6 +272,33 @@ export class Game {
             const target = this.getPlayerById(targetId);
             if (!target || !target.isAlive) return { success: false, error: "Invalid target" };
             player.removeCoins(7);
+
+            // Waukegan: targeted coup — specify which card to remove
+            if (this.ruleset === Ruleset.WAUKEGAN && coupTargetCard) {
+                this.actionHistory.push({
+                    id: crypto.randomUUID(),
+                    type: ActionType.COUP,
+                    playerId,
+                    targetId,
+                    coupTargetCard,
+                    timestamp: new Date(),
+                });
+                if (target.hasCard(coupTargetCard)) {
+                    const cards = target.getCardsOfType(coupTargetCard);
+                    target.removeCard(cards[0].id);
+                    if (target.cards.length === 0) target.eliminate();
+                }
+                // Miss: coins spent, nothing happens to target
+                if (this.isGameOver()) {
+                    this.endGame();
+                } else {
+                    this.nextTurn();
+                }
+                this.updateActivity();
+                return { success: true, immediate: true };
+            }
+
+            // Standard coup
             this.actionHistory.push({
                 id: crypto.randomUUID(),
                 type: ActionType.COUP,
@@ -267,12 +327,15 @@ export class Game {
             if (!target || !target.isAlive) return { success: false, error: "Invalid target" };
         }
 
+        const useDouble = isDouble && this.ruleset === Ruleset.WAUKEGAN;
+
         const gameAction: GameAction = {
             id: crypto.randomUUID(),
             type: actionType,
             playerId,
             targetId,
             cardClaimed: this.getCardForAction(actionType),
+            isDouble: useDouble || undefined,
             timestamp: new Date(),
         };
 
@@ -280,13 +343,21 @@ export class Game {
         const challengeableActions = [ActionType.TAX, ActionType.ASSASSINATE, ActionType.STEAL, ActionType.EXCHANGE];
         const blockableActions = [ActionType.FOREIGN_AID, ActionType.ASSASSINATE, ActionType.STEAL];
         const canChallenge = challengeableActions.includes(actionType);
-        const canBlock = blockableActions.includes(actionType);
+        let canBlock = blockableActions.includes(actionType);
 
         const challengeableBy = canChallenge ? alivePlayers.map((p) => p.id) : [];
         let blockableBy: string[] = [];
         if (canBlock) {
-            blockableBy =
-                actionType === ActionType.FOREIGN_AID ? alivePlayers.map((p) => p.id) : targetId ? [targetId] : [];
+            if (actionType === ActionType.FOREIGN_AID) {
+                blockableBy = alivePlayers.map((p) => p.id);
+            } else if (targetId) {
+                blockableBy = [targetId];
+            }
+            // Waukegan: Double Captain cannot be blocked
+            if (useDouble && actionType === ActionType.STEAL) {
+                blockableBy = [];
+                canBlock = false;
+            }
         }
 
         this.pendingAction = {
@@ -308,6 +379,8 @@ export class Game {
         responderId: string,
         response: ResponseType,
         cardClaimed?: CardType,
+        isDouble?: boolean,
+        redirectTargetId?: string,
     ): {
         success: boolean;
         error?: string;
@@ -335,18 +408,33 @@ export class Game {
             }
             const claimedCard = pa.action.cardClaimed!;
             const actor = this.getPlayerById(actorId)!;
-            const actorHasCard = actor.hasCard(claimedCard);
+            const actionIsDouble = pa.action.isDouble && this.ruleset === Ruleset.WAUKEGAN;
+
+            // Double claims require 2 cards to prove
+            const actorHasCard = actionIsDouble
+                ? actor.getCardsOfType(claimedCard).length >= 2
+                : actor.hasCard(claimedCard);
             pa.responses[responderId] = ResponseType.CHALLENGE;
 
             if (actorHasCard) {
-                // Challenge failed: actor proves the card, challenger loses influence
-                const cardInstances = actor.getCardsOfType(claimedCard);
-                const cardToReturn = cardInstances[0];
-                actor.removeCard(cardToReturn.id);
-                this.deck.push(cardToReturn);
-                this.deck = shuffleDeck(this.deck);
-                const newCard = this.deck.pop()!;
-                actor.addCard(newCard);
+                // Challenge failed: actor proves card(s), challenger loses influence
+                if (actionIsDouble) {
+                    const cards = actor.getCardsOfType(claimedCard);
+                    actor.removeCard(cards[0].id);
+                    actor.removeCard(cards[1].id);
+                    this.deck.push(cards[0], cards[1]);
+                    this.deck = shuffleDeck(this.deck);
+                    actor.addCard(this.deck.pop()!);
+                    actor.addCard(this.deck.pop()!);
+                } else {
+                    const cardInstances = actor.getCardsOfType(claimedCard);
+                    const cardToReturn = cardInstances[0];
+                    actor.removeCard(cardToReturn.id);
+                    this.deck.push(cardToReturn);
+                    this.deck = shuffleDeck(this.deck);
+                    const newCard = this.deck.pop()!;
+                    actor.addCard(newCard);
+                }
                 this.playersWhoMustLoseCard.add(responderId);
                 this.pendingResolution = "action_success";
                 return {
@@ -383,7 +471,24 @@ export class Game {
             if (!validBlockCards.includes(cardClaimed)) {
                 return { success: false, error: "Invalid card for blocking this action", event: "waiting" };
             }
-            pa.block = { blockerId: responderId, cardClaimed, responses: {} };
+            // Waukegan: Double Assassin can only be blocked by Double Contessa
+            const blockIsDouble = isDouble && this.ruleset === Ruleset.WAUKEGAN;
+            if (this.ruleset === Ruleset.WAUKEGAN && pa.action.isDouble && pa.action.type === ActionType.ASSASSINATE) {
+                if (cardClaimed !== CardType.CONTESSA || !blockIsDouble) {
+                    return {
+                        success: false,
+                        error: "Double Assassin can only be blocked by Double Contessa",
+                        event: "waiting",
+                    };
+                }
+            }
+            pa.block = {
+                blockerId: responderId,
+                cardClaimed,
+                isDouble: blockIsDouble || undefined,
+                redirectTargetId: blockIsDouble && redirectTargetId ? redirectTargetId : undefined,
+                responses: {},
+            };
             pa.responses[responderId] = ResponseType.BLOCK;
             this.phase = GamePhase.BLOCK_PHASE;
             return { success: true, event: "block_declared" };
@@ -428,20 +533,47 @@ export class Game {
 
         if (response === ResponseType.CHALLENGE) {
             const blocker = this.getPlayerById(block.blockerId)!;
-            const blockerHasCard = blocker.hasCard(block.cardClaimed);
+            const blockIsDouble = block.isDouble && this.ruleset === Ruleset.WAUKEGAN;
+
+            // Double block claims require 2 cards to prove
+            const blockerHasCard = blockIsDouble
+                ? blocker.getCardsOfType(block.cardClaimed).length >= 2
+                : blocker.hasCard(block.cardClaimed);
             block.responses[responderId] = ResponseType.CHALLENGE;
 
             if (blockerHasCard) {
-                // Block challenge failed: blocker proves the card, challenger loses, block stands
-                const cardInstances = blocker.getCardsOfType(block.cardClaimed);
-                const cardToReturn = cardInstances[0];
-                blocker.removeCard(cardToReturn.id);
-                this.deck.push(cardToReturn);
-                this.deck = shuffleDeck(this.deck);
-                const newCard = this.deck.pop()!;
-                blocker.addCard(newCard);
+                // Block challenge failed: blocker proves card(s), challenger loses, block stands
+                if (blockIsDouble) {
+                    const cards = blocker.getCardsOfType(block.cardClaimed);
+                    blocker.removeCard(cards[0].id);
+                    blocker.removeCard(cards[1].id);
+                    this.deck.push(cards[0], cards[1]);
+                    this.deck = shuffleDeck(this.deck);
+                    blocker.addCard(this.deck.pop()!);
+                    blocker.addCard(this.deck.pop()!);
+                    // Double Contessa redirect: assassination goes to redirect target
+                    if (block.redirectTargetId && this.pendingAction!.action.type === ActionType.ASSASSINATE) {
+                        const redirectTarget = this.getPlayerById(block.redirectTargetId);
+                        if (redirectTarget && redirectTarget.isAlive) {
+                            this.pendingAction!.action.targetId = block.redirectTargetId;
+                            this.pendingResolution = "action_success";
+                        } else {
+                            this.pendingResolution = "action_fail";
+                        }
+                    } else {
+                        this.pendingResolution = "action_fail";
+                    }
+                } else {
+                    const cardInstances = blocker.getCardsOfType(block.cardClaimed);
+                    const cardToReturn = cardInstances[0];
+                    blocker.removeCard(cardToReturn.id);
+                    this.deck.push(cardToReturn);
+                    this.deck = shuffleDeck(this.deck);
+                    const newCard = this.deck.pop()!;
+                    blocker.addCard(newCard);
+                    this.pendingResolution = "action_fail";
+                }
                 this.playersWhoMustLoseCard.add(responderId);
-                this.pendingResolution = "action_fail";
                 return {
                     success: true,
                     event: "challenge_resolved",
@@ -450,7 +582,23 @@ export class Game {
                     needsCardLoss: [responderId],
                 };
             } else {
-                // Block challenge succeeded: blocker was bluffing, action proceeds
+                // Block challenge succeeded: blocker was bluffing
+                // Dylan's Gambit: Waukegan + assassination + blocker bluffed = lose ALL cards
+                if (this.ruleset === Ruleset.WAUKEGAN && this.pendingAction!.action.type === ActionType.ASSASSINATE) {
+                    for (const card of [...blocker.cards]) {
+                        blocker.removeCard(card.id);
+                    }
+                    blocker.eliminate();
+                    this.pendingResolution = "action_success"; // Assassination "succeeds" (blocker eliminated)
+                    return {
+                        success: true,
+                        event: "challenge_resolved",
+                        challengerWon: true,
+                        loserId: block.blockerId,
+                        needsCardLoss: [], // Already eliminated, no card selection
+                    };
+                }
+                // Standard: blocker loses 1 card, action proceeds
                 this.playersWhoMustLoseCard.add(block.blockerId);
                 this.pendingResolution = "action_success";
                 return {
@@ -470,6 +618,20 @@ export class Game {
                 .map((p) => p.id);
             const allResponded = eligibleResponders.every((id) => block.responses[id] !== undefined);
             if (allResponded) {
+                // Waukegan: Double Contessa redirect — assassination goes to redirect target
+                if (
+                    this.ruleset === Ruleset.WAUKEGAN &&
+                    block.isDouble &&
+                    block.redirectTargetId &&
+                    this.pendingAction!.action.type === ActionType.ASSASSINATE
+                ) {
+                    const redirectTarget = this.getPlayerById(block.redirectTargetId);
+                    if (redirectTarget && redirectTarget.isAlive) {
+                        this.pendingAction!.action.targetId = block.redirectTargetId;
+                        this.pendingResolution = "action_success";
+                        return { success: true, event: "block_stands" };
+                    }
+                }
                 this.pendingResolution = "action_fail";
                 return { success: true, event: "block_stands" };
             }
@@ -547,19 +709,27 @@ export class Game {
         const player = this.getPlayerById(action.playerId);
         if (!player) return;
 
-        switch (action.type) {
-            case ActionType.FOREIGN_AID:
-                player.addCoins(2);
-                break;
+        const isDouble = action.isDouble && this.ruleset === Ruleset.WAUKEGAN;
 
-            case ActionType.TAX:
-                player.addCoins(3);
+        switch (action.type) {
+            case ActionType.FOREIGN_AID: {
+                const toAdd = this.ruleset === Ruleset.WAUKEGAN ? Math.min(2, 12 - player.coins) : 2;
+                if (toAdd > 0) player.addCoins(toAdd);
                 break;
+            }
+
+            case ActionType.TAX: {
+                const base = isDouble ? 5 : 3;
+                const toAdd = this.ruleset === Ruleset.WAUKEGAN ? Math.min(base, 12 - player.coins) : base;
+                if (toAdd > 0) player.addCoins(toAdd);
+                break;
+            }
 
             case ActionType.STEAL: {
                 const target = action.targetId ? this.getPlayerById(action.targetId) : null;
                 if (target && target.isAlive) {
-                    const stolen = Math.min(2, target.coins);
+                    const stealAmount = isDouble ? 3 : 2;
+                    const stolen = Math.min(stealAmount, target.coins);
                     target.removeCoins(stolen);
                     player.addCoins(stolen);
                 }
@@ -579,8 +749,9 @@ export class Game {
             }
 
             case ActionType.EXCHANGE: {
+                const drawCount = isDouble ? 3 : 2;
                 const drawn: Card[] = [];
-                for (let i = 0; i < 2 && this.deck.length > 0; i++) {
+                for (let i = 0; i < drawCount && this.deck.length > 0; i++) {
                     drawn.push(this.deck.pop()!);
                 }
                 if (this.pendingAction) {

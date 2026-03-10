@@ -6,6 +6,7 @@ import {
     CardType,
     GamePhase,
     ResponseType,
+    Ruleset,
     type Card,
     type GameState,
     type PlayerState,
@@ -46,7 +47,9 @@ const ACTION_COLORS: Record<ActionType, string> = {
 };
 
 export default function GamePage() {
-    const { socket } = useSocket(import.meta.env.VITE_SERVER_URL || `http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
+    const { socket } = useSocket(
+        import.meta.env.VITE_SERVER_URL || `http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`,
+    );
     const { gameData, playerData, setGameData } = useGame();
     const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
     const [selectedExchangeCards, setSelectedExchangeCards] = useState<string[]>([]);
@@ -54,6 +57,10 @@ export default function GamePage() {
         { id: string; playerId: string; playerName: string; text: string; timestamp: Date }[]
     >([]);
     const [chatInput, setChatInput] = useState("");
+    const [isDoubleClaimMode, setIsDoubleClaimMode] = useState(false);
+    const [coupTargetPlayerId, setCoupTargetPlayerId] = useState<string | null>(null);
+    const [doubleContessaStep, setDoubleContessaStep] = useState<"pickTarget" | null>(null);
+    const [doubleContessaRedirectId, setDoubleContessaRedirectId] = useState<string | null>(null);
     const feedBottomRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -80,6 +87,10 @@ export default function GamePage() {
             setGameData(data.gameState);
         });
 
+        socket.on("game-started", (data: GameState) => {
+            setGameData(data);
+        });
+
         socket.on("player-reconnected", (data: { playerId: string; gameState: GameState }) => {
             if (data.gameState) setGameData(data.gameState);
         });
@@ -93,6 +104,7 @@ export default function GamePage() {
 
         return () => {
             socket.off("game-state-update");
+            socket.off("game-started");
             socket.off("player-reconnected");
             socket.off("chat-message");
         };
@@ -128,15 +140,18 @@ export default function GamePage() {
         pendingAction.exchangeOptions
     );
     const myCoins = myPlayer?.coins ?? 0;
-    const mustCoup = myCoins >= 10;
+    const mustCoup = myCoins >= 10 && gameData.ruleset !== Ruleset.WAUKEGAN;
+    const isWaukegan = gameData.ruleset === Ruleset.WAUKEGAN;
 
     // --- Helpers ---
     const getPlayerName = (id?: string) => gameData.players.find((p) => p.id === id)?.name ?? "Unknown";
 
-    const performAction = (actionType: ActionType, targetId?: string) => {
+    const performAction = (actionType: ActionType, targetId?: string, isDouble?: boolean, coupTargetCard?: CardType) => {
         if (!socket) return;
         setPendingActionType(null);
-        socket.emit("perform-action", { actionType, targetId }, (res: { success: boolean; error?: string }) => {
+        setCoupTargetPlayerId(null);
+        setIsDoubleClaimMode(false);
+        socket.emit("perform-action", { actionType, targetId, isDouble, coupTargetCard }, (res: { success: boolean; error?: string }) => {
             if (!res.success) console.error("Action failed:", res.error);
         });
     };
@@ -145,19 +160,25 @@ export default function GamePage() {
         if ([ActionType.COUP, ActionType.STEAL, ActionType.ASSASSINATE].includes(actionType)) {
             setPendingActionType(actionType);
         } else {
-            performAction(actionType);
+            performAction(actionType, undefined, isDoubleClaimMode);
         }
     };
 
     const handleTargetClick = (targetId: string) => {
-        if (pendingActionType) {
-            performAction(pendingActionType, targetId);
+        if (!pendingActionType) return;
+        // Waukegan coup: first pick player, then pick card type
+        if (pendingActionType === ActionType.COUP && isWaukegan) {
+            setCoupTargetPlayerId(targetId);
+            return;
         }
+        performAction(pendingActionType, targetId, isDoubleClaimMode);
     };
 
-    const respondToAction = (response: ResponseType, cardClaimed?: CardType) => {
+    const respondToAction = (response: ResponseType, cardClaimed?: CardType, isDouble?: boolean, redirectTargetId?: string) => {
         if (!socket) return;
-        socket.emit("respond-to-action", { response, cardClaimed }, (res: { success: boolean; error?: string }) => {
+        setDoubleContessaStep(null);
+        setDoubleContessaRedirectId(null);
+        socket.emit("respond-to-action", { response, cardClaimed, isDouble, redirectTargetId }, (res: { success: boolean; error?: string }) => {
             if (!res.success) console.error("Respond failed:", res.error);
         });
     };
@@ -314,12 +335,13 @@ export default function GamePage() {
             const block = pendingAction.block;
             const blockerName = getPlayerName(block.blockerId);
             const actionName = ACTION_LABELS[pendingAction.action.type];
+            const redirectName = block.redirectTargetId ? getPlayerName(block.redirectTargetId) : null;
 
             if (isBlocker) {
                 return (
                     <div className="p-4 text-center text-gray-500">
-                        You claimed <span className="font-semibold capitalize">{block.cardClaimed}</span> to block{" "}
-                        {actionName}. Waiting for others to respond...
+                        You claimed {block.isDouble ? "Double " : ""}<span className="font-semibold capitalize">{block.cardClaimed}</span> to block{" "}
+                        {actionName}{redirectName ? ` → redirecting to ${redirectName}` : ""}. Waiting for others to respond...
                     </div>
                 );
             }
@@ -332,7 +354,8 @@ export default function GamePage() {
                 <div className="p-4 text-center">
                     <p className="font-semibold mb-3">
                         <span className="text-orange-600">{blockerName}</span> claims{" "}
-                        <span className="capitalize font-bold">{block.cardClaimed}</span> to block {actionName}.
+                        {block.isDouble ? "Double " : ""}<span className="capitalize font-bold">{block.cardClaimed}</span> to block {actionName}
+                        {redirectName ? <span className="text-yellow-600"> → redirecting to {redirectName}</span> : ""}.
                         Challenge it?
                     </p>
                     <div className="flex gap-3 justify-center">
@@ -359,11 +382,12 @@ export default function GamePage() {
             const actionName = ACTION_LABELS[pendingAction.action.type];
             const cardClaimed = pendingAction.action.cardClaimed;
             const actionType = pendingAction.action.type;
+            const actionIsDouble = pendingAction.action.isDouble;
 
             if (isActor) {
                 return (
                     <div className="p-4 text-center text-gray-500">
-                        You declared <span className="font-semibold">{actionName}</span>. Waiting for others to
+                        You declared {actionIsDouble ? "Double " : ""}<span className="font-semibold">{actionName}</span>. Waiting for others to
                         respond...
                     </div>
                 );
@@ -372,17 +396,64 @@ export default function GamePage() {
                 return <div className="p-4 text-center text-gray-500">Waiting for others to respond...</div>;
             }
 
+            // Waukegan: Double Contessa redirect step — pick redirect target
+            if (doubleContessaStep === "pickTarget" && canBlock && actionType === ActionType.ASSASSINATE) {
+                const alivePlayers = gameData.players.filter((p) => p.isAlive && p.id !== myId && p.id !== pendingAction.action.playerId);
+                return (
+                    <div className="p-4 text-center">
+                        <p className="font-semibold mb-2 text-yellow-600">Double Contessa: pick who to redirect the assassination to</p>
+                        <div className="flex gap-2 justify-center flex-wrap mb-3">
+                            {alivePlayers.map((p) => (
+                                <button
+                                    key={p.id}
+                                    onClick={() => setDoubleContessaRedirectId(p.id)}
+                                    className={`px-4 py-2 rounded font-semibold text-sm border-2 transition-colors ${
+                                        doubleContessaRedirectId === p.id
+                                            ? "bg-yellow-400 border-yellow-600 text-gray-950"
+                                            : "bg-gray-800 border-gray-600 text-white hover:border-yellow-400"
+                                    }`}
+                                >
+                                    {p.name}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex gap-2 justify-center">
+                            <button
+                                onClick={() => {
+                                    if (doubleContessaRedirectId) {
+                                        respondToAction(ResponseType.BLOCK, CardType.CONTESSA, true, doubleContessaRedirectId);
+                                    }
+                                }}
+                                disabled={!doubleContessaRedirectId}
+                                className="bg-yellow-400 hover:bg-yellow-500 disabled:opacity-40 text-gray-950 px-5 py-2 rounded font-semibold"
+                            >
+                                Confirm Redirect
+                            </button>
+                            <button
+                                onClick={() => { setDoubleContessaStep(null); setDoubleContessaRedirectId(null); }}
+                                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded"
+                            >
+                                Back
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className="p-4 text-center">
-                    <p className="font-semibold mb-3">
-                        <span className="text-blue-600">{actorName}</span> wants to {actionName}
+                    <p className="font-semibold mb-1">
+                        <span className="text-blue-600">{actorName}</span> wants to {actionIsDouble ? "Double " : ""}{actionName}
                         {cardClaimed && (
                             <span className="text-gray-500 text-sm">
                                 {" "}
-                                (claiming <span className="capitalize">{cardClaimed}</span>)
+                                (claiming {actionIsDouble ? "Double " : ""}<span className="capitalize">{cardClaimed}</span>)
                             </span>
                         )}
                     </p>
+                    {isWaukegan && actionType === ActionType.ASSASSINATE && (
+                        <p className="text-xs text-red-500 mb-2">⚠ Dylan's Gambit: failing a Contessa bluff here loses ALL your cards</p>
+                    )}
                     <div className="flex gap-3 justify-center flex-wrap">
                         {canChallenge && (
                             <button
@@ -401,12 +472,24 @@ export default function GamePage() {
                             </button>
                         )}
                         {canBlock && actionType === ActionType.ASSASSINATE && (
-                            <button
-                                onClick={() => respondToAction(ResponseType.BLOCK, CardType.CONTESSA)}
-                                className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded font-semibold"
-                            >
-                                Block (Contessa)
-                            </button>
+                            <>
+                                {(!actionIsDouble || !isWaukegan) && (
+                                    <button
+                                        onClick={() => respondToAction(ResponseType.BLOCK, CardType.CONTESSA)}
+                                        className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded font-semibold"
+                                    >
+                                        Block (Contessa)
+                                    </button>
+                                )}
+                                {isWaukegan && (
+                                    <button
+                                        onClick={() => setDoubleContessaStep("pickTarget")}
+                                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded font-semibold"
+                                    >
+                                        Block (Double Contessa — redirect)
+                                    </button>
+                                )}
+                            </>
                         )}
                         {canBlock && actionType === ActionType.STEAL && (
                             <>
@@ -435,14 +518,50 @@ export default function GamePage() {
             );
         }
 
-        // 5. My turn — target selection mode
+        // 5a. Waukegan coup — card type selection (after player was picked)
+        if (coupTargetPlayerId && pendingActionType === ActionType.COUP && isWaukegan) {
+            const targetPlayer = gameData.players.find((p) => p.id === coupTargetPlayerId);
+            const cardTypes = [CardType.DUKE, CardType.ASSASSIN, CardType.CAPTAIN, CardType.AMBASSADOR, CardType.CONTESSA];
+            return (
+                <div className="p-4 text-center">
+                    <p className="font-semibold text-red-600 mb-3">
+                        Coup on <span className="font-bold">{targetPlayer?.name}</span> — which card are you targeting?
+                    </p>
+                    <div className="flex gap-2 justify-center flex-wrap mb-3">
+                        {cardTypes.map((card) => (
+                            <button
+                                key={card}
+                                onClick={() => performAction(ActionType.COUP, coupTargetPlayerId, false, card)}
+                                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold capitalize text-sm"
+                            >
+                                {card}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => { setCoupTargetPlayerId(null); }}
+                        className="text-sm text-gray-500 underline"
+                    >
+                        Back
+                    </button>
+                </div>
+            );
+        }
+
+        // 5b. Target selection mode
         if (pendingActionType) {
             return (
                 <div className="p-4 text-center">
                     <p className="font-semibold text-blue-700 mb-2">
-                        Select a target for <span className="capitalize">{ACTION_LABELS[pendingActionType]}</span>
+                        Select a target for{" "}
+                        <span className="capitalize">
+                            {isDoubleClaimMode ? "Double " : ""}{ACTION_LABELS[pendingActionType]}
+                        </span>
                     </p>
-                    <button onClick={() => setPendingActionType(null)} className="text-sm text-gray-500 underline">
+                    <button
+                        onClick={() => { setPendingActionType(null); setIsDoubleClaimMode(false); }}
+                        className="text-sm text-gray-500 underline"
+                    >
                         Cancel
                     </button>
                 </div>
@@ -458,48 +577,66 @@ export default function GamePage() {
                             You have 10+ coins — you must Coup!
                         </p>
                     ) : (
-                        <p className="text-center text-green-600 font-semibold mb-2">Your turn</p>
+                        <div className="flex items-center justify-center gap-3 mb-2">
+                            <p className="text-center text-green-600 font-semibold">Your turn</p>
+                            {isWaukegan && (
+                                <button
+                                    onClick={() => setIsDoubleClaimMode((prev) => !prev)}
+                                    className={`text-xs px-3 py-1 rounded border font-semibold transition-colors ${
+                                        isDoubleClaimMode
+                                            ? "bg-yellow-400 border-yellow-600 text-gray-950"
+                                            : "bg-gray-800 border-gray-600 text-gray-300 hover:border-yellow-400"
+                                    }`}
+                                >
+                                    {isDoubleClaimMode ? "Double Claim ON" : "Double Claim OFF"}
+                                </button>
+                            )}
+                        </div>
                     )}
                     <div className="flex justify-center gap-2 flex-wrap">
                         {!mustCoup && (
                             <>
-                                <button
-                                    onClick={() => handleActionButtonClick(ActionType.INCOME)}
-                                    className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded text-sm"
-                                >
-                                    Income (+1)
-                                </button>
-                                <button
-                                    onClick={() => handleActionButtonClick(ActionType.FOREIGN_AID)}
-                                    className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded text-sm"
-                                >
-                                    Foreign Aid (+2)
-                                </button>
+                                {!(isWaukegan && myCoins >= 10) && (
+                                    <button
+                                        onClick={() => handleActionButtonClick(ActionType.INCOME)}
+                                        className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded text-sm"
+                                    >
+                                        Income (+1)
+                                    </button>
+                                )}
+                                {!(isWaukegan && myCoins >= 10) && (
+                                    <button
+                                        onClick={() => handleActionButtonClick(ActionType.FOREIGN_AID)}
+                                        className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded text-sm"
+                                    >
+                                        Foreign Aid (+2)
+                                    </button>
+                                )}
                                 <div className="border-l border-gray-300 mx-1" />
                                 <button
                                     onClick={() => handleActionButtonClick(ActionType.TAX)}
                                     className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded text-sm"
                                 >
-                                    Tax — Duke (+3)
+                                    {isDoubleClaimMode && isWaukegan ? "Double Duke (+5)" : "Tax — Duke (+3)"}
                                 </button>
                                 <button
                                     onClick={() => handleActionButtonClick(ActionType.STEAL)}
                                     className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm"
                                 >
-                                    Steal — Captain
+                                    {isDoubleClaimMode && isWaukegan ? "Double Captain (steal 3)" : "Steal — Captain"}
                                 </button>
                                 <button
                                     onClick={() => handleActionButtonClick(ActionType.ASSASSINATE)}
                                     disabled={myCoins < 3}
                                     className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 text-white px-4 py-2 rounded text-sm"
                                 >
-                                    Assassinate (-3)
+                                    {isDoubleClaimMode && isWaukegan ? "Double Assassin (-3)" : "Assassinate (-3)"}
                                 </button>
                                 <button
                                     onClick={() => handleActionButtonClick(ActionType.EXCHANGE)}
                                     className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded text-sm"
                                 >
-                                    Exchange — Ambassador
+                                    {isDoubleClaimMode && isWaukegan ? "Double Ambassador (3 cards)" : "Exchange — Ambassador"}
                                 </button>
                             </>
                         )}
@@ -515,14 +652,52 @@ export default function GamePage() {
             );
         }
 
-        // 7. Waiting (not my turn, no action needed)
-        if (phase === GamePhase.ENDED) {
+        // 7. Waiting / ended
+        if (phase === GamePhase.ENDED || phase === GamePhase.WAITING) {
             const winner = gameData.winner;
+            const isHost = myId === gameData.hostPlayerId;
+
+            const resetGame = () => {
+                if (!socket) return;
+                socket.emit("reset-game", { gameCode: gameData.code }, (res: { success: boolean }) => {
+                    if (!res.success) console.error("Reset failed");
+                });
+            };
+
+            const startGame = () => {
+                if (!socket) return;
+                socket.emit("start-game", { gameCode: gameData.code }, (res: { success: boolean }) => {
+                    if (!res.success) console.error("Failed to start game");
+                });
+            };
+
+            if (phase === GamePhase.WAITING) {
+                return (
+                    <div className="p-4 text-center flex flex-col items-center gap-3">
+                        <p className="text-sm text-gray-400">Waiting for host to start the next game...</p>
+                        {isHost && (
+                            <button
+                                onClick={startGame}
+                                className="bg-white text-gray-950 font-semibold px-6 py-2.5 rounded hover:bg-gray-200 transition-colors text-sm"
+                            >
+                                Start Game
+                            </button>
+                        )}
+                    </div>
+                );
+            }
+
             return (
-                <div className="p-4 text-center">
+                <div className="p-4 text-center flex flex-col items-center gap-4">
                     <p className="text-xl font-bold">
                         {winner?.id === myId ? "You won!" : `${winner?.name ?? "Someone"} wins!`}
                     </p>
+                    <button
+                        onClick={resetGame}
+                        className="bg-white text-gray-950 font-semibold px-6 py-2.5 rounded hover:bg-gray-200 transition-colors text-sm"
+                    >
+                        New Game
+                    </button>
                 </div>
             );
         }
@@ -534,7 +709,7 @@ export default function GamePage() {
         );
     };
 
-    const isTargetSelectionMode = !!pendingActionType;
+    const isTargetSelectionMode = !!pendingActionType && !coupTargetPlayerId;
 
     return (
         <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -554,6 +729,11 @@ export default function GamePage() {
                     <span className="font-mono text-lg font-bold text-yellow-400 tracking-widest bg-gray-800 px-3 py-1 rounded">
                         {gameData.code}
                     </span>
+                    {gameData.ruleset === Ruleset.WAUKEGAN && (
+                        <span className="text-xs font-semibold bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-2 py-0.5 rounded">
+                            Waukegan
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <div className="text-sm text-gray-300 font-medium">{myPlayer?.name}</div>
@@ -705,7 +885,7 @@ export default function GamePage() {
                                         return faceUpCards.map((card) => (
                                             <div
                                                 key={card.id}
-                                                className={`w-11 h-16 rounded-lg border-2 shadow-lg flex flex-col items-center justify-center gap-0.5 ${CARD_COLORS[card.type] ?? "bg-gray-700 border-gray-500 text-white"}`}
+                                                className={`w-16 h-22 rounded-lg border-2 shadow-lg flex flex-col items-center justify-center gap-0.5 ${CARD_COLORS[card.type] ?? "bg-gray-700 border-gray-500 text-white"}`}
                                             >
                                                 <span className="text-[10px] font-bold capitalize leading-tight text-center px-0.5">
                                                     {card.type}
@@ -715,13 +895,13 @@ export default function GamePage() {
                                     }
                                     if (cardCount === 0) {
                                         return (
-                                            <div className="w-11 h-16 rounded-lg border border-dashed border-gray-600 opacity-30" />
+                                            <div className="w-16 h-22 rounded-lg border border-dashed border-gray-600 opacity-30" />
                                         );
                                     }
                                     return Array.from({ length: cardCount }).map((_, i) => (
                                         <div
                                             key={i}
-                                            className="w-11 h-16 rounded-lg border-2 border-gray-600 bg-gray-800 shadow-lg flex items-center justify-center"
+                                            className="w-16 h-22 rounded-lg border-2 border-gray-600 bg-gray-800 shadow-lg flex items-center justify-center"
                                         >
                                             <div className="w-7 h-11 rounded border border-gray-500 opacity-50 flex items-center justify-center">
                                                 <div className="w-3 h-3 rounded-full border border-gray-400 opacity-60" />
@@ -761,21 +941,8 @@ export default function GamePage() {
                                                     {isMe && " (You)"}
                                                 </div>
 
-                                                <div className="flex flex-wrap gap-0.5 justify-center max-w-[56px]">
-                                                    {Array.from({ length: Math.min(player.coins, 12) }).map((_, i) => (
-                                                        <div
-                                                            key={i}
-                                                            className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 shadow-sm"
-                                                        />
-                                                    ))}
-                                                    {player.coins > 12 && (
-                                                        <span className="text-[9px] text-yellow-400 font-bold">
-                                                            +{player.coins - 12}
-                                                        </span>
-                                                    )}
-                                                    {player.coins === 0 && (
-                                                        <span className="text-[9px] text-gray-500">0 coins</span>
-                                                    )}
+                                                <div className="text-xs text-yellow-400 font-semibold">
+                                                    {player.coins} coins
                                                 </div>
                                             </div>
 

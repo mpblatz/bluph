@@ -9,6 +9,7 @@ export default function CreatePage() {
     const { socket } = useSocket(import.meta.env.VITE_SERVER_URL || `http://localhost:${import.meta.env.VITE_SERVER_PORT || 8003}`);
     const [name, setName] = useState<string>("");
     const [gameCode, setGameCode] = useState<string>("");
+    const [ruleset, setRuleset] = useState<string>("standard");
     const { gameData, setPlayerData, setGameData } = useGame();
 
     useEffect(() => {
@@ -33,7 +34,7 @@ export default function CreatePage() {
         if (!socket || !name) return;
         socket.emit(
             "create-game",
-            { playerName: name },
+            { playerName: name, ruleset },
             (response: { success: boolean; gameCode: string; gameState: GameState; playerState: PlayerState }) => {
                 setGameCode(response.gameCode);
                 setGameData(response.gameState);
@@ -106,6 +107,22 @@ export default function CreatePage() {
                             placeholder="Your name"
                             className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
                         />
+                        <div className="flex rounded overflow-hidden border border-gray-700">
+                            <button
+                                type="button"
+                                onClick={() => setRuleset("standard")}
+                                className={`flex-1 py-2 text-xs font-semibold transition-colors ${ruleset === "standard" ? "bg-white text-gray-950" : "bg-gray-800 text-gray-400 hover:text-gray-200"}`}
+                            >
+                                Standard
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setRuleset("waukegan")}
+                                className={`flex-1 py-2 text-xs font-semibold transition-colors ${ruleset === "waukegan" ? "bg-yellow-400 text-gray-950" : "bg-gray-800 text-gray-400 hover:text-gray-200"}`}
+                            >
+                                Waukegan
+                            </button>
+                        </div>
                         <button
                             onClick={createGame}
                             disabled={!name.trim()}

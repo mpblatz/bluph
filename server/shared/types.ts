@@ -31,6 +31,11 @@ export enum ResponseType {
     ALLOW = "allow",
 }
 
+export enum Ruleset {
+    STANDARD = "standard",
+    WAUKEGAN = "waukegan",
+}
+
 export interface Card {
     type: CardType;
     id: string;
@@ -42,12 +47,16 @@ export interface GameAction {
     playerId: string;
     targetId?: string;
     cardClaimed?: CardType;
+    isDouble?: boolean;
+    coupTargetCard?: CardType;
     timestamp: Date;
 }
 
 export interface PendingBlock {
     blockerId: string;
     cardClaimed: CardType;
+    isDouble?: boolean;
+    redirectTargetId?: string;
     responses: { [playerId: string]: ResponseType };
 }
 
@@ -107,4 +116,5 @@ export interface GameState {
     winner: PublicPlayerState | undefined;
     hostPlayerId: string;
     playersWhoMustLoseCard: string[];
+    ruleset: Ruleset;
 }

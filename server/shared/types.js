@@ -31,3 +31,8 @@ export var ResponseType;
     ResponseType["BLOCK"] = "block";
     ResponseType["ALLOW"] = "allow";
 })(ResponseType || (ResponseType = {}));
+export var Ruleset;
+(function (Ruleset) {
+    Ruleset["STANDARD"] = "standard";
+    Ruleset["WAUKEGAN"] = "waukegan";
+})(Ruleset || (Ruleset = {}));
