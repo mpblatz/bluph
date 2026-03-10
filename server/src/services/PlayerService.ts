@@ -1,4 +1,4 @@
-import { Player } from "../game/Player";
+import { Player } from "../game/Player.js";
 
 export class PlayerService {
     private players = new Map<string, Player>();

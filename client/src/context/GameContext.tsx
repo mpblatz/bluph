@@ -1,6 +1,6 @@
 // src/context/GameContext.tsx
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import type { GameState, PlayerState } from "../../../shared/types";
+import type { GameState, PlayerState } from "../../../server/shared/types";
 
 interface GameContextType {
     playerData: PlayerState | null;

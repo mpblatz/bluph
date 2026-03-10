@@ -1,8 +1,8 @@
 import { Server, Socket } from "socket.io";
-import { ResponseType } from "../../../shared/types";
-import { Game } from "../game/Game";
-import { GameService } from "../services/GameService";
-import { PlayerService } from "../services/PlayerService";
+import { ResponseType } from "../../shared/types.js";
+import { Game } from "../game/Game.js";
+import { GameService } from "../services/GameService.js";
+import { PlayerService } from "../services/PlayerService.js";
 
 function broadcastToGame(io: Server, game: Game, _playerService: PlayerService): void {
     io.to(game.code).emit("game-state-update", { gameState: game.getGameState() });
@@ -151,7 +151,12 @@ function handleGetGameState(socket: Socket, _io: Server, gameService: GameServic
             const game = gameService.getGame(gameCode);
             if (!game) return callback({ success: false, error: "Game not found" });
 
-            callback({ success: true, gameCode, gameState: game.getGameState(player.id), chatHistory: game.chatHistory });
+            callback({
+                success: true,
+                gameCode,
+                gameState: game.getGameState(player.id),
+                chatHistory: game.chatHistory,
+            });
         } catch (error) {
             console.error("Error getting game state:", error);
             callback({ success: false, error: "Server error" });
@@ -334,7 +339,7 @@ export function registerGameHandlers(
     socket: Socket,
     io: Server,
     gameService: GameService,
-    playerService: PlayerService
+    playerService: PlayerService,
 ) {
     // Lobby events
     socket.on("create-game", handleCreateGame(socket, io, gameService, playerService));

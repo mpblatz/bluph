@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { useSocket } from "../hooks/useSocket";
-import type { GameState, PlayerState, PublicPlayerState } from "../../../shared/types";
+import type { GameState, PlayerState, PublicPlayerState } from "../../../server/shared/types";
 import { Link, useNavigate } from "react-router-dom";
 import { useGame } from "../context/GameContext";
 
@@ -38,7 +38,7 @@ export default function CreatePage() {
                 setGameCode(response.gameCode);
                 setGameData(response.gameState);
                 setPlayerData(response.playerState);
-            }
+            },
         );
     };
 
@@ -52,7 +52,10 @@ export default function CreatePage() {
     return (
         <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center">
             <div className="flex flex-col items-center gap-8 w-80">
-                <Link to="/" className="text-5xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors">
+                <Link
+                    to="/"
+                    className="text-5xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors"
+                >
                     bluph
                 </Link>
 
@@ -61,7 +64,9 @@ export default function CreatePage() {
                         <div className="w-full bg-gray-900 border border-gray-800 rounded-lg p-5 flex flex-col gap-4">
                             <div className="text-center">
                                 <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Game Code</p>
-                                <p className="font-mono text-3xl font-bold text-yellow-400 tracking-widest">{gameCode}</p>
+                                <p className="font-mono text-3xl font-bold text-yellow-400 tracking-widest">
+                                    {gameCode}
+                                </p>
                                 <p className="text-xs text-gray-500 mt-1">Share this with your friends</p>
                             </div>
 
@@ -70,7 +75,10 @@ export default function CreatePage() {
                             <div className="flex flex-col gap-1.5">
                                 <p className="text-xs text-gray-500 uppercase tracking-widest">Players</p>
                                 {gameData?.players?.map((player, index) => (
-                                    <div key={player.id || index} className="flex items-center justify-between bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+                                    <div
+                                        key={player.id || index}
+                                        className="flex items-center justify-between bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
+                                    >
                                         <span>{player.name}</span>
                                         {gameData.hostPlayerId === player.id && (
                                             <span className="text-xs text-yellow-500 font-medium">host</span>
@@ -105,7 +113,10 @@ export default function CreatePage() {
                         >
                             Create Game
                         </button>
-                        <Link to="/" className="text-center text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                        <Link
+                            to="/"
+                            className="text-center text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                        >
                             Back
                         </Link>
                     </div>

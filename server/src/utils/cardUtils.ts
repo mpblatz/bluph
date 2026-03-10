@@ -1,4 +1,4 @@
-import { Card, CardType } from "../../../shared/types";
+import { Card, CardType } from "../../shared/types.js";
 import { v4 as uuidv4 } from "uuid";
 
 export function createDeck(): Card[] {

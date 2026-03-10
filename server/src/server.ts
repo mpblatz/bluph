@@ -3,13 +3,17 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
-import path from "path";
-import { PlayerService } from "./services/PlayerService";
-import { GameService } from "./services/GameService";
-import { registerGameHandlers } from "./socket/socketHandlers";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+import { PlayerService } from "./services/PlayerService.js";
+import { GameService } from "./services/GameService.js";
+import { registerGameHandlers } from "./socket/socketHandlers.js";
 
-dotenv.config({ path: path.resolve(__dirname, "../.env.local") });
-dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config({ path: resolve(__dirname, "../.env.local") });
+dotenv.config({ path: resolve(__dirname, "../../.env.local") });
 
 const app = express();
 const server = createServer(app);

@@ -8,9 +8,9 @@ import {
     GameState,
     PendingAction,
     ResponseType,
-} from "../../../shared/types";
-import { createDeck, shuffleDeck } from "../utils/cardUtils";
-import { Player } from "./Player";
+} from "../../shared/types.js";
+import { createDeck, shuffleDeck } from "../utils/cardUtils.js";
+import { Player } from "./Player.js";
 
 export class Game {
     public readonly code: string;
@@ -204,7 +204,7 @@ export class Game {
     public declareAction(
         playerId: string,
         actionType: ActionType,
-        targetId?: string
+        targetId?: string,
     ): { success: boolean; error?: string; immediate?: boolean; needsCardLoss?: string } {
         const currentPlayer = this.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.id !== playerId) {
@@ -286,11 +286,7 @@ export class Game {
         let blockableBy: string[] = [];
         if (canBlock) {
             blockableBy =
-                actionType === ActionType.FOREIGN_AID
-                    ? alivePlayers.map((p) => p.id)
-                    : targetId
-                    ? [targetId]
-                    : [];
+                actionType === ActionType.FOREIGN_AID ? alivePlayers.map((p) => p.id) : targetId ? [targetId] : [];
         }
 
         this.pendingAction = {
@@ -311,7 +307,7 @@ export class Game {
     public respondToAction(
         responderId: string,
         response: ResponseType,
-        cardClaimed?: CardType
+        cardClaimed?: CardType,
     ): {
         success: boolean;
         error?: string;
@@ -409,7 +405,7 @@ export class Game {
 
     public respondToBlock(
         responderId: string,
-        response: ResponseType
+        response: ResponseType,
     ): {
         success: boolean;
         error?: string;
@@ -485,7 +481,7 @@ export class Game {
 
     public loseCard(
         playerId: string,
-        cardId: string
+        cardId: string,
     ): { success: boolean; error?: string; eliminated: boolean; gameOver: boolean; pendingCardLoss: boolean } {
         if (!this.playersWhoMustLoseCard.has(playerId)) {
             return {
@@ -498,11 +494,23 @@ export class Game {
         }
         const player = this.getPlayerById(playerId);
         if (!player) {
-            return { success: false, error: "Player not found", eliminated: false, gameOver: false, pendingCardLoss: false };
+            return {
+                success: false,
+                error: "Player not found",
+                eliminated: false,
+                gameOver: false,
+                pendingCardLoss: false,
+            };
         }
         const card = player.removeCard(cardId);
         if (!card) {
-            return { success: false, error: "Card not found", eliminated: false, gameOver: false, pendingCardLoss: false };
+            return {
+                success: false,
+                error: "Card not found",
+                eliminated: false,
+                gameOver: false,
+                pendingCardLoss: false,
+            };
         }
         this.playersWhoMustLoseCard.delete(playerId);
 
@@ -593,10 +601,7 @@ export class Game {
         }
     }
 
-    public performExchange(
-        playerId: string,
-        keepCardIds: string[]
-    ): { success: boolean; error?: string } {
+    public performExchange(playerId: string, keepCardIds: string[]): { success: boolean; error?: string } {
         if (!this.pendingAction?.exchangeOptions || this.pendingAction.action.playerId !== playerId) {
             return { success: false, error: "No pending exchange for this player" };
         }

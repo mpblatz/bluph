@@ -1,7 +1,15 @@
 import { Link } from "react-router-dom";
 import { useSocket } from "../hooks/useSocket";
 import { useEffect, useRef, useState } from "react";
-import { ActionType, CardType, GamePhase, ResponseType, type Card, type GameState, type PlayerState } from "../../../shared/types";
+import {
+    ActionType,
+    CardType,
+    GamePhase,
+    ResponseType,
+    type Card,
+    type GameState,
+    type PlayerState,
+} from "../../../server/shared/types";
 import { useGame } from "../context/GameContext";
 
 const ACTION_LABELS: Record<ActionType, string> = {
@@ -42,7 +50,9 @@ export default function GamePage() {
     const { gameData, playerData, setGameData } = useGame();
     const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
     const [selectedExchangeCards, setSelectedExchangeCards] = useState<string[]>([]);
-    const [chatMessages, setChatMessages] = useState<{ id: string; playerId: string; playerName: string; text: string; timestamp: Date }[]>([]);
+    const [chatMessages, setChatMessages] = useState<
+        { id: string; playerId: string; playerName: string; text: string; timestamp: Date }[]
+    >([]);
     const [chatInput, setChatInput] = useState("");
     const feedBottomRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +72,7 @@ export default function GamePage() {
                         setGameData(response.gameState);
                         if (response.chatHistory) setChatMessages(response.chatHistory);
                     }
-                }
+                },
             );
         }
 
@@ -74,9 +84,12 @@ export default function GamePage() {
             if (data.gameState) setGameData(data.gameState);
         });
 
-        socket.on("chat-message", (msg: { id: string; playerId: string; playerName: string; text: string; timestamp: Date }) => {
-            setChatMessages((prev) => [msg, ...prev]);
-        });
+        socket.on(
+            "chat-message",
+            (msg: { id: string; playerId: string; playerName: string; text: string; timestamp: Date }) => {
+                setChatMessages((prev) => [msg, ...prev]);
+            },
+        );
 
         return () => {
             socket.off("game-state-update");
@@ -86,7 +99,11 @@ export default function GamePage() {
     }, [socket]);
 
     if (!gameData?.players) {
-        return <div className="flex text-center items-center h-screen justify-center bg-gray-950 text-gray-400">game state is not set properly :(</div>;
+        return (
+            <div className="flex text-center items-center h-screen justify-center bg-gray-950 text-gray-400">
+                game state is not set properly :(
+            </div>
+        );
     }
 
     // --- Derived state ---
@@ -96,15 +113,20 @@ export default function GamePage() {
     const pendingAction = gameData.pendingAction;
     const myId = playerData?.id;
 
-    const isMyTurn = gameData.currentPlayer?.id === myId && phase === GamePhase.PLAYING && !pendingAction?.exchangeOptions;
+    const isMyTurn =
+        gameData.currentPlayer?.id === myId && phase === GamePhase.PLAYING && !pendingAction?.exchangeOptions;
     const isActor = pendingAction?.action.playerId === myId;
-    const canChallenge = !!(pendingAction?.challengeableBy.includes(myId ?? ""));
-    const canBlock = !!(pendingAction?.blockableBy.includes(myId ?? ""));
+    const canChallenge = !!pendingAction?.challengeableBy.includes(myId ?? "");
+    const canBlock = !!pendingAction?.blockableBy.includes(myId ?? "");
     const hasRespondedToAction = !!(myId && pendingAction?.responses[myId] !== undefined);
     const isBlocker = pendingAction?.block?.blockerId === myId;
     const hasRespondedToBlock = !!(myId && pendingAction?.block?.responses[myId] !== undefined);
     const mustLoseCard = !!(myId && gameData.playersWhoMustLoseCard.includes(myId));
-    const hasExchangeChoice = !!(pendingAction?.action.type === ActionType.EXCHANGE && isActor && pendingAction.exchangeOptions);
+    const hasExchangeChoice = !!(
+        pendingAction?.action.type === ActionType.EXCHANGE &&
+        isActor &&
+        pendingAction.exchangeOptions
+    );
     const myCoins = myPlayer?.coins ?? 0;
     const mustCoup = myCoins >= 10;
 
@@ -156,10 +178,14 @@ export default function GamePage() {
 
     const submitExchange = () => {
         if (!socket) return;
-        socket.emit("choose-exchange-cards", { keepCardIds: selectedExchangeCards }, (res: { success: boolean; error?: string }) => {
-            if (!res.success) console.error("Exchange failed:", res.error);
-            else setSelectedExchangeCards([]);
-        });
+        socket.emit(
+            "choose-exchange-cards",
+            { keepCardIds: selectedExchangeCards },
+            (res: { success: boolean; error?: string }) => {
+                if (!res.success) console.error("Exchange failed:", res.error);
+                else setSelectedExchangeCards([]);
+            },
+        );
     };
 
     const sendChat = () => {
@@ -227,7 +253,9 @@ export default function GamePage() {
         if (mustLoseCard) {
             return (
                 <div className="p-4 text-center">
-                    <p className="font-semibold text-red-600 mb-3">You must reveal a card. Choose which influence to lose:</p>
+                    <p className="font-semibold text-red-600 mb-3">
+                        You must reveal a card. Choose which influence to lose:
+                    </p>
                     <div className="flex gap-3 justify-center">
                         {myCards.map((card) => (
                             <button
@@ -249,7 +277,9 @@ export default function GamePage() {
             return (
                 <div className="p-4 text-center">
                     <p className="font-semibold text-emerald-700 mb-1">Exchange: choose {keepCount} card(s) to keep</p>
-                    <p className="text-xs text-gray-500 mb-3">Selected: {selectedExchangeCards.length}/{keepCount}</p>
+                    <p className="text-xs text-gray-500 mb-3">
+                        Selected: {selectedExchangeCards.length}/{keepCount}
+                    </p>
                     <div className="flex gap-3 justify-center mb-3">
                         {pendingAction.exchangeOptions.map((card) => {
                             const isSelected = selectedExchangeCards.includes(card.id);
@@ -288,18 +318,22 @@ export default function GamePage() {
             if (isBlocker) {
                 return (
                     <div className="p-4 text-center text-gray-500">
-                        You claimed <span className="font-semibold capitalize">{block.cardClaimed}</span> to block {actionName}. Waiting for others to respond...
+                        You claimed <span className="font-semibold capitalize">{block.cardClaimed}</span> to block{" "}
+                        {actionName}. Waiting for others to respond...
                     </div>
                 );
             }
             if (hasRespondedToBlock) {
-                return <div className="p-4 text-center text-gray-500">Waiting for others to respond to the block...</div>;
+                return (
+                    <div className="p-4 text-center text-gray-500">Waiting for others to respond to the block...</div>
+                );
             }
             return (
                 <div className="p-4 text-center">
                     <p className="font-semibold mb-3">
                         <span className="text-orange-600">{blockerName}</span> claims{" "}
-                        <span className="capitalize font-bold">{block.cardClaimed}</span> to block {actionName}. Challenge it?
+                        <span className="capitalize font-bold">{block.cardClaimed}</span> to block {actionName}.
+                        Challenge it?
                     </p>
                     <div className="flex gap-3 justify-center">
                         <button
@@ -329,7 +363,8 @@ export default function GamePage() {
             if (isActor) {
                 return (
                     <div className="p-4 text-center text-gray-500">
-                        You declared <span className="font-semibold">{actionName}</span>. Waiting for others to respond...
+                        You declared <span className="font-semibold">{actionName}</span>. Waiting for others to
+                        respond...
                     </div>
                 );
             }
@@ -342,7 +377,10 @@ export default function GamePage() {
                     <p className="font-semibold mb-3">
                         <span className="text-blue-600">{actorName}</span> wants to {actionName}
                         {cardClaimed && (
-                            <span className="text-gray-500 text-sm"> (claiming <span className="capitalize">{cardClaimed}</span>)</span>
+                            <span className="text-gray-500 text-sm">
+                                {" "}
+                                (claiming <span className="capitalize">{cardClaimed}</span>)
+                            </span>
                         )}
                     </p>
                     <div className="flex gap-3 justify-center flex-wrap">
@@ -404,10 +442,7 @@ export default function GamePage() {
                     <p className="font-semibold text-blue-700 mb-2">
                         Select a target for <span className="capitalize">{ACTION_LABELS[pendingActionType]}</span>
                     </p>
-                    <button
-                        onClick={() => setPendingActionType(null)}
-                        className="text-sm text-gray-500 underline"
-                    >
+                    <button onClick={() => setPendingActionType(null)} className="text-sm text-gray-500 underline">
                         Cancel
                     </button>
                 </div>
@@ -419,7 +454,9 @@ export default function GamePage() {
             return (
                 <div className="p-4">
                     {mustCoup ? (
-                        <p className="text-center text-red-600 font-semibold mb-2">You have 10+ coins — you must Coup!</p>
+                        <p className="text-center text-red-600 font-semibold mb-2">
+                            You have 10+ coins — you must Coup!
+                        </p>
                     ) : (
                         <p className="text-center text-green-600 font-semibold mb-2">Your turn</p>
                     )}
@@ -502,8 +539,14 @@ export default function GamePage() {
     return (
         <div className="flex flex-col h-screen bg-gray-950 text-white">
             {/* Header */}
-            <div id="nav" className="flex items-center justify-between px-5 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
-                <Link to="/" className="text-2xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors">
+            <div
+                id="nav"
+                className="flex items-center justify-between px-5 py-2 bg-gray-900 border-b border-gray-800 shrink-0"
+            >
+                <Link
+                    to="/"
+                    className="text-2xl font-bold tracking-tight text-white hover:text-gray-300 transition-colors"
+                >
                     bluph
                 </Link>
                 <div className="flex items-center gap-3">
@@ -533,13 +576,23 @@ export default function GamePage() {
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
                         {(() => {
-                            const actionItems = [...gameData.actionHistory].map((a) => ({ kind: "action" as const, ts: new Date(a.timestamp).getTime(), data: a }));
-                            const chatItems = chatMessages.map((m) => ({ kind: "chat" as const, ts: new Date(m.timestamp).getTime(), data: m }));
+                            const actionItems = [...gameData.actionHistory].map((a) => ({
+                                kind: "action" as const,
+                                ts: new Date(a.timestamp).getTime(),
+                                data: a,
+                            }));
+                            const chatItems = chatMessages.map((m) => ({
+                                kind: "chat" as const,
+                                ts: new Date(m.timestamp).getTime(),
+                                data: m,
+                            }));
                             const merged = [...actionItems, ...chatItems].sort((a, b) => a.ts - b.ts).slice(-40);
 
-                            if (merged.length === 0) return <div className="text-xs text-gray-600 text-center py-4">No activity yet</div>;
+                            if (merged.length === 0)
+                                return <div className="text-xs text-gray-600 text-center py-4">No activity yet</div>;
 
-                            const fmt = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                            const fmt = (ts: number) =>
+                                new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
                             return merged.map((item, i) => {
                                 if (item.kind === "action") {
@@ -549,12 +602,17 @@ export default function GamePage() {
                                     const label = ACTION_HISTORY_LABELS[action.type];
                                     const colorClass = ACTION_COLORS[action.type];
                                     return (
-                                        <div key={action.id ?? i} className={`text-xs text-gray-800 rounded border-l-2 px-2 py-1.5 ${colorClass}`}>
+                                        <div
+                                            key={action.id ?? i}
+                                            className={`text-xs text-gray-800 rounded border-l-2 px-2 py-1.5 ${colorClass}`}
+                                        >
                                             <div className="flex items-start justify-between gap-1">
                                                 <span>
                                                     <span className="font-bold text-gray-900">{actorName}</span>{" "}
                                                     <span className="text-gray-600">{label}</span>
-                                                    {targetName && <span className="font-bold text-gray-900"> {targetName}</span>}
+                                                    {targetName && (
+                                                        <span className="font-bold text-gray-900"> {targetName}</span>
+                                                    )}
                                                 </span>
                                                 <span className="text-gray-400 shrink-0 mt-0.5">{fmt(item.ts)}</span>
                                             </div>
@@ -564,10 +622,17 @@ export default function GamePage() {
                                     const msg = item.data;
                                     const isMe = msg.playerId === myId;
                                     return (
-                                        <div key={msg.id} className="text-xs rounded border-l-2 border-l-gray-600 bg-gray-800 px-2 py-1.5">
+                                        <div
+                                            key={msg.id}
+                                            className="text-xs rounded border-l-2 border-l-gray-600 bg-gray-800 px-2 py-1.5"
+                                        >
                                             <div className="flex items-start justify-between gap-1">
                                                 <span>
-                                                    <span className={`font-bold ${isMe ? "text-blue-400" : "text-gray-300"}`}>{msg.playerName}</span>
+                                                    <span
+                                                        className={`font-bold ${isMe ? "text-blue-400" : "text-gray-300"}`}
+                                                    >
+                                                        {msg.playerName}
+                                                    </span>
                                                     <span className="text-gray-500">: </span>
                                                     <span className="text-gray-200">{msg.text}</span>
                                                 </span>
@@ -603,10 +668,7 @@ export default function GamePage() {
 
                 <div className="flex flex-col w-full h-full overflow-hidden">
                     {/* Table */}
-                    <div
-                        id="table"
-                        className="w-full relative flex items-center justify-center flex-1 bg-gray-950"
-                    >
+                    <div id="table" className="w-full relative flex items-center justify-center flex-1 bg-gray-950">
                         <div className="w-[90%] h-[90%] bg-green-800 rounded-full border-8 border-yellow-600 shadow-2xl relative overflow-visible">
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
                                 <div className="text-white text-lg font-bold">Bluph</div>
@@ -645,15 +707,22 @@ export default function GamePage() {
                                                 key={card.id}
                                                 className={`w-11 h-16 rounded-lg border-2 shadow-lg flex flex-col items-center justify-center gap-0.5 ${CARD_COLORS[card.type] ?? "bg-gray-700 border-gray-500 text-white"}`}
                                             >
-                                                <span className="text-[10px] font-bold capitalize leading-tight text-center px-0.5">{card.type}</span>
+                                                <span className="text-[10px] font-bold capitalize leading-tight text-center px-0.5">
+                                                    {card.type}
+                                                </span>
                                             </div>
                                         ));
                                     }
                                     if (cardCount === 0) {
-                                        return <div className="w-11 h-16 rounded-lg border border-dashed border-gray-600 opacity-30" />;
+                                        return (
+                                            <div className="w-11 h-16 rounded-lg border border-dashed border-gray-600 opacity-30" />
+                                        );
                                     }
                                     return Array.from({ length: cardCount }).map((_, i) => (
-                                        <div key={i} className="w-11 h-16 rounded-lg border-2 border-gray-600 bg-gray-800 shadow-lg flex items-center justify-center">
+                                        <div
+                                            key={i}
+                                            className="w-11 h-16 rounded-lg border-2 border-gray-600 bg-gray-800 shadow-lg flex items-center justify-center"
+                                        >
                                             <div className="w-7 h-11 rounded border border-gray-500 opacity-50 flex items-center justify-center">
                                                 <div className="w-3 h-3 rounded-full border border-gray-400 opacity-60" />
                                             </div>
@@ -668,7 +737,9 @@ export default function GamePage() {
                                         className="absolute z-10"
                                         onClick={() => isValidTarget && handleTargetClick(player.id)}
                                     >
-                                        <div className={`flex items-center gap-2 ${!player.isAlive ? "opacity-40" : ""} ${isValidTarget ? "cursor-pointer" : ""}`}>
+                                        <div
+                                            className={`flex items-center gap-2 ${!player.isAlive ? "opacity-40" : ""} ${isValidTarget ? "cursor-pointer" : ""}`}
+                                        >
                                             {/* Avatar + name + coins */}
                                             <div className="flex flex-col items-center gap-1">
                                                 <div
@@ -682,23 +753,34 @@ export default function GamePage() {
                                                     {player.name.charAt(0).toUpperCase()}
                                                 </div>
 
-                                                <div className={`px-2 py-0.5 rounded-full text-xs font-medium shadow-md whitespace-nowrap ${isMe ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"} ${!player.isAlive ? "line-through" : ""}`}>
-                                                    {player.name}{player.id === gameData.hostPlayerId && " 👑"}{isMe && " (You)"}
+                                                <div
+                                                    className={`px-2 py-0.5 rounded-full text-xs font-medium shadow-md whitespace-nowrap ${isMe ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"} ${!player.isAlive ? "line-through" : ""}`}
+                                                >
+                                                    {player.name}
+                                                    {player.id === gameData.hostPlayerId && " 👑"}
+                                                    {isMe && " (You)"}
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-0.5 justify-center max-w-[56px]">
                                                     {Array.from({ length: Math.min(player.coins, 12) }).map((_, i) => (
-                                                        <div key={i} className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 shadow-sm" />
+                                                        <div
+                                                            key={i}
+                                                            className="w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-600 shadow-sm"
+                                                        />
                                                     ))}
-                                                    {player.coins > 12 && <span className="text-[9px] text-yellow-400 font-bold">+{player.coins - 12}</span>}
-                                                    {player.coins === 0 && <span className="text-[9px] text-gray-500">0 coins</span>}
+                                                    {player.coins > 12 && (
+                                                        <span className="text-[9px] text-yellow-400 font-bold">
+                                                            +{player.coins - 12}
+                                                        </span>
+                                                    )}
+                                                    {player.coins === 0 && (
+                                                        <span className="text-[9px] text-gray-500">0 coins</span>
+                                                    )}
                                                 </div>
                                             </div>
 
                                             {/* Cards */}
-                                            <div className="flex gap-1">
-                                                {renderCards()}
-                                            </div>
+                                            <div className="flex gap-1">{renderCards()}</div>
                                         </div>
                                     </div>
                                 );

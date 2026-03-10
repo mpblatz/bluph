@@ -1,4 +1,4 @@
-import { Card, CardType, PlayerState, PublicPlayerState } from "../../../shared/types";
+import { Card, CardType, PlayerState, PublicPlayerState } from "../../shared/types.js";
 
 export class Player {
     public readonly id: string;
