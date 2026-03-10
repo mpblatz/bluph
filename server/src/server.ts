@@ -25,6 +25,8 @@ const allowedOrigins = [
     `http://localhost:${CLIENT_PORT}`,
     "https://bluph.gg",
     "http://bluph.gg",
+    "https://www.bluph.gg",
+    "http://www.bluph.gg",
 ];
 
 const io = new Server(server, {
